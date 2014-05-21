@@ -1,0 +1,31 @@
+#ifndef AEB_H
+#define AEB_H
+#include <string.h>
+#include <stdio.h>
+#include <math.h>
+struct NODO {
+  char operador;
+  double valor;
+  struct NODO * esq, * dir;
+};
+ 
+typedef struct NODO Aeb; // Aeb = Arvore de expressão binária
+ 
+Aeb * criaFolha(double valor);
+Aeb * criaRaiz(char operador);
+ 
+// Cria uma arvore composta por uma raiz e duas subarvores (esquerda e direita)
+void conectaNodos(Aeb * raiz, Aeb * esq, Aeb * dir);
+ 
+// Resolve a expressão contida na árvore
+double resolveExpressao(Aeb * arvore);
+
+Aeb ** trataArvore(static char *exp);
+
+void agrupa(Aeb ** vetor,char * c);
+
+void mostraArvore(Aeb * arvore);
+
+Aeb * criaArvore(static char * expr);
+
+#endif

@@ -1,0 +1,133 @@
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include "maze.h"
+#include "glista.h"
+
+
+struct Local {
+int direcao,acima,direita,abaixo,esquerda;
+};
+
+Pilha * criaPilha(){
+ return criaLista();
+}
+
+int posicaolivre(struct Local*dir){
+	if(dir->direita!=1){
+	dir->direita=1;
+	return DIREITA;
+	}
+	else{
+		if(dir->abaixo!=1){
+		dir->abaixo=1;
+		return ABAIXO;
+		}
+		else{
+			if(dir->esquerda!=1){
+			dir->esquerda=1;							
+			return ESQUERDA;
+			}
+				else{
+					if(dir->acima!=1){
+					dir->acima=1;					
+					 return ACIMA;
+					}							
+				}
+		}
+	}
+return 0;
+}
+
+int Volta(int direcao){
+	if(direcao==DIREITA) return ESQUERDA;
+	if(direcao==ESQUERDA) return DIREITA;
+	if(direcao==ABAIXO) return ACIMA;
+	if(direcao==ACIMA) return ABAIXO;
+}
+
+int direcaoOposta(int direcao,struct Local*dir){
+	if(direcao==DIREITA){
+		dir->esquerda=1;
+		return;}
+	if(direcao==ACIMA){	
+		dir->abaixo=1;
+		return;}
+	if(direcao==ESQUERDA){
+		dir->direita=1;
+		return;}
+	if(direcao==ABAIXO){
+		dir->acima=1;
+		return;}
+}
+
+
+struct Local * criaLocal(int direc){
+  struct Local *local;
+
+ local = (struct Local *) malloc (sizeof (struct Local));
+ 
+  
+  local->direcao=direc;
+  local->direita= 0;
+  local->abaixo=0;
+  local->esquerda=0;
+  local->acima=0;
+ 
+  return local;
+}
+
+
+
+
+int main(int c, char **v)
+{
+Pilha * pilha= criaPilha();
+
+//-1 avança mas não chegou a saída
+//0 cara na parede
+//1 chegou à saída
+
+
+	struct Local *dir;	
+	int status,status2;
+
+	// Cria um labirinto com 8 colunas e 16 linhas
+        cria_labirinto(16,8);
+	// Espera 1 segundo entre cada movimentação dentro do
+	// do labirinto.
+	dir=criaLocal(status2);
+	dir->esquerda=1;
+	dir->acima=1;
+	for(;;){
+		status2=posicaolivre(dir);
+        	printf("status2=%d\n", status2);
+	
+
+		if (status2 != 0) {
+			//sleep(1);
+			status=avanca(status2,0);
+		}
+		else status = 0;
+
+		if(status==1){
+			printf("\nChegou ao final do labirinto\n");
+			return;
+		}
+		if(status==-1){
+			push(pilha,dir);
+			dir=criaLocal(status2);
+			direcaoOposta(status2,dir);
+		}
+		if(status==0 && dir->direita && dir->abaixo && dir->esquerda && dir->acima){
+			printf("\n%d\n",dir->direcao);
+			avanca(Volta(dir->direcao),1);
+        		free(dir);
+			dir=pop(pilha);	
+		}
+	}
+		
+		
+ return 0;
+}
+

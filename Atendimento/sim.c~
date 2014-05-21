@@ -1,0 +1,234 @@
+#include<stdio.h>
+#include<stdlib.h>
+#include "sim.h"
+#include "glista.h"
+
+#define TRUE 1
+#define FALSE 0
+#define INTERVALO_MINIMO 2
+#define INTERVALO_MAXIMO 60
+
+// Os tipos de eventos
+enum {
+  CHEGADA,
+  SAIDA
+};
+
+struct SIMULACAO {
+  double int_min, int_max; // intervalos entre chegadas
+  Lista * lista; // lista de eventos futuros
+  double relogio; // relogio de simulacao
+};
+
+typedef struct SIMULACAO Simulacao;
+
+// Um evento corresponde a cada acontecimento do sistema simulado. 
+// Há apenas dois tipos de evento: 
+// - chegada: quando um novo cliente entra no sistema
+// - saida: quando o atendimento do cliente termina
+
+struct EVENTO {
+  int tipo; // tipo de evento: chegada ou saída
+  double t; // o instante em que deve ocorrer
+  Cliente * cliente; // o cliente que corresponde ao evento
+  Atendente * atendente; // o atendente que vai atender o cliente
+};
+
+typedef struct EVENTO Evento;
+
+// inicia o gerador de números pseudo-aleatórios
+void init_random() {
+  struct timeval t;
+
+  gettimeofday(&t, NULL);
+  srandom(t.tv_usec);
+}
+
+// Obtém um número pseudo-aleatório entre 0 e 1.
+double get_random() {
+  unsigned long x = random();
+  double r = (double)x/RAND_MAX;
+
+  return r;
+}
+
+// compara dois eventos por seus instantes
+int compara(void * p1, void * p2) {
+  Evento * e1 = (Evento*)p1;
+  Evento * e2 = (Evento*)p2;
+
+  if (e1->t < e2->t) return -1;
+  return (e1->t > e2->t);
+}
+
+Evento * cria_evento(int tipo, double instante, Cliente * cliente, Atendente * atendente) {
+  Evento * novo;
+
+  novo = (Evento*)malloc(sizeof(Evento));
+  novo->tipo = tipo;
+  novo->t = instante;
+  novo->cliente = cliente;
+  novo->atendente = atendente;
+
+  return novo;
+}
+
+void nova_chegada(double instante, Atendente * atendente, Lista * lista) {
+  Evento * novo;
+  Cliente * cliente;
+
+  cliente = (Cliente*) malloc(sizeof(Cliente));
+  cliente->tipo = 0; // tipo de cliente ... por enquanto tudo igual
+  cliente->chegada = instante;
+  cliente->inicio = 0;
+
+  novo = cria_evento(CHEGADA, instante, cliente, atendente);
+
+  // adicionar o evento "novo" à lista
+  insereOrdenado(lista, (void*)novo);
+}
+
+void nova_saida(double instante, Cliente * cliente, Atendente * atendente, Lista * lista) {
+  Evento * novo;
+  double t;
+
+  t = instante + atendente->tempo_min + get_random()*(atendente->tempo_max - atendente->tempo_min);
+  novo = cria_evento(SAIDA, t, cliente, atendente);
+
+  //printf("%.2f: Nova saida em %.2f\n", instante, t);
+
+  // adicionar o evento "novo" à lista de eventos futuros
+  insereOrdenado(lista, (void*)novo);
+}
+
+int atende(Cliente * cliente, Atendente * atendente, double t) {
+  if (atendente->capacidade > atendente->uso) {
+    double t_fila;
+
+    atendente->uso++;
+    cliente->inicio = t;
+    t_fila = cliente->inicio - cliente->chegada;
+    atendente->tempo_fila += t_fila;
+    if (t_fila > atendente->maior_espera) atendente->maior_espera = t_fila;
+    if (t_fila < atendente->menor_espera) atendente->menor_espera = t_fila;
+    return 1;
+  }
+  return 0;
+}
+
+void conclui_atendimento(Evento * evento) {
+  double t_atend = evento->t - evento->cliente->inicio;
+
+  evento->atendente->atendimentos++;
+  evento->atendente->tempo_total += t_atend;
+  if (t_atend > evento->atendente->mais_demorado) evento->atendente->mais_demorado = t_atend;
+  if (t_atend < evento->atendente->mais_rapido) evento->atendente->mais_rapido = t_atend;
+  evento->atendente->uso--;
+
+  free(evento->cliente);
+}
+
+void processa_evento(Evento * evento, Simulacao * sim) {
+  Evento * novo;
+  Cliente * cliente;
+  double t;
+
+  switch (evento->tipo) {
+    case CHEGADA:
+      evento->atendente->chegadas++;
+      if (! atende(evento->cliente, evento->atendente, evento->t)) {
+	// põe o cliente na fila de espera. Isso simula a fila de atendimento.
+        enfileira(evento->atendente->fila, (void*)evento->cliente);
+        evento->atendente->fila_total += evento->atendente->fila->comprimento;
+        if (evento->atendente->fila->comprimento > evento->atendente->fila_max) {
+	  evento->atendente->fila_max = evento->atendente->fila_total;
+	}
+        evento->atendente->fila_cont ++;
+      } else {
+        // cria um evento SAIDA para o término do atendimento desse cliente
+        nova_saida(evento->t, evento->cliente, evento->atendente, sim->lista);
+      }
+      // agenda a proxima chegada
+      t = sim->relogio + get_random()*(sim->int_max - sim->int_min);
+      nova_chegada(t, evento->atendente, sim->lista);
+      break;
+    case SAIDA:
+      conclui_atendimento(evento);
+      // retira o próximo cliente da fila de espera, e programa o término de seu
+      // atendimento.      
+      cliente = (Cliente*) desenfileira(evento->atendente->fila);
+
+      if (cliente != NULL) {
+	atende(cliente, evento->atendente, evento->t);
+        nova_saida(evento->t, cliente, evento->atendente, sim->lista); 
+      }
+      break;
+  }
+  //printf("LEF: evento a apagar=%p\n", evento);
+  //mostraLista(sim->lista);
+  free(evento);
+}
+
+// simula o sistema de atendimento com duração dada por 'duração'.
+// ao final, os resultados estarão em 'atendente'.
+double simula(double duracao, double intervalo_max, double intervalo_min, Atendente * atendente) {
+  Evento * evento;
+  Simulacao sim;
+  struct timeval t1, t2;
+
+  gettimeofday(&t1, NULL);
+
+  init_random();
+
+  sim.int_min = intervalo_min;
+  sim.int_max = intervalo_max;
+  sim.relogio = 0;
+
+  // iniciar a lista (criá-la)
+  sim.lista = criaLista();
+
+  // cria o primeiro evento, que é a chegada do primeiro cliente
+  // ele deve ser executado no instante 0.
+  nova_chegada(0, atendente, sim.lista);
+
+  while (sim.relogio < duracao) {
+    // obter o próximo evento da lista
+    // esse evento deve ser então referenciado pelo ponteiro "evento"
+    evento = (Evento*) removePrimeiroItem(sim.lista);
+
+    if (evento == NULL) break; // se não houver mais eventos, termina a simulação
+
+    // avança o relógio de simulação
+    sim.relogio = evento->t;
+
+    //printf("%.3f: tipo=%d\n", sim.relogio, evento->tipo);
+
+    processa_evento(evento, &sim);
+  }  
+  gettimeofday(&t2, NULL);
+  return (t2.tv_sec - t1.tv_sec) + 1e-6*(t2.tv_usec - t1.tv_usec);
+}
+
+Atendente * criaAtendente(unsigned int capacidade, double tempo_max, double tempo_min, Fila * fila) {
+  Atendente * a;
+
+  a = (Atendente*)malloc(sizeof(Atendente));
+  a->capacidade = capacidade;
+  a->uso = 0;
+  a->fila = fila;
+  a->tempo_min = tempo_min;
+  a->tempo_max = tempo_max;
+  a->atendimentos = 0;
+  a->tempo_total = 0;
+  a->mais_rapido = 1e30;
+  a->mais_demorado = 0;
+  a->tempo_fila = 0;
+  a->maior_espera = 0;
+  a->menor_espera = 1e30;
+  a->fila_cont = 0;
+  a->fila_max = 0;
+  a->fila_total = 0;
+  a->chegadas = 0;
+
+  return a;
+}
